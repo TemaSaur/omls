@@ -40,10 +40,9 @@ def shorten(req: ShortenModel) -> ShortenResponse:
 
 @app.get("/{link}")
 def longen(link: str) -> LongenResponse:
-	print(links)
 	if link in links:
 		return LongenResponse(status="ok", link=links[link])
-	raise HTTPException(404, LongenResponse(status="not found", link=""))
+	raise HTTPException(404, LongenResponse(status="not found", link="").model_dump())
 
 
 def get_random_word(length: int = 5) -> str:
