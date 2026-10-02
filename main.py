@@ -16,35 +16,52 @@ class ShortenResponse(BaseModel):
 	new_link: str = Field(title="newLink")
 
 
+class Link(BaseModel):
+	short: str
+	long: str
+	count: int
+
+	def __init__(self, short: str, long: str):
+		super().__init__(short=short, long=long, count=0)
+
+
 @app.get("/")
 def index() -> dict[str, str]:
 	return {"status": "ok"}
 
 
-links: dict[str, str] = {}
+links: dict[str, Link] = {}
 
 
 @app.post("/shorten")
 def shorten(req: ShortenModel) -> ShortenResponse:
-	if req.link in links:
-		return ShortenResponse(status="ok", new_link=links[req.link])
-
-	link = get_random_word()
+	short = get_random_word()
 
 	if not req.link.startswith("https:"):
 		url = f"https://{req.link}"
 	else:
 		url = req.link
-	links[link] = url
 
-	return ShortenResponse(status="ok", new_link=link)
+	links[short] = Link(short, url)
+
+	return ShortenResponse(status="ok", new_link=short)
 
 
 @app.get("/{link}")
 def longen(link: str) -> RedirectResponse:
 	if link not in links:
 		raise HTTPException(404, "link not found")
-	return RedirectResponse(links[link], status_code=302)
+	obj = links[link]
+	obj.count += 1
+	return RedirectResponse(obj.long, status_code=302)
+
+
+@app.get("/status/{link}")
+def get_status(link: str) -> Link:
+	if link not in links:
+		raise HTTPException(404, "link not found")
+	obj = links[link]
+	return obj
 
 
 def get_random_word(length: int = 4) -> str:
