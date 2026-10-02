@@ -1,6 +1,7 @@
 import random
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI()
@@ -13,11 +14,6 @@ class ShortenModel(BaseModel):
 class ShortenResponse(BaseModel):
 	status: str
 	new_link: str = Field(title="newLink")
-
-
-class LongenResponse(BaseModel):
-	status: str
-	link: str
 
 
 @app.get("/")
@@ -34,17 +30,24 @@ def shorten(req: ShortenModel) -> ShortenResponse:
 		return ShortenResponse(status="ok", new_link=links[req.link])
 
 	link = get_random_word()
-	links[link] = req.link
+
+	if not req.link.startswith("https:"):
+		url = f"https://{req.link}"
+	else:
+		url = req.link
+	links[link] = url
+
 	return ShortenResponse(status="ok", new_link=link)
 
 
 @app.get("/{link}")
-def longen(link: str) -> LongenResponse:
-	if link in links:
-		return LongenResponse(status="ok", link=links[link])
-	raise HTTPException(404, LongenResponse(status="not found", link="").model_dump())
+def longen(link: str) -> RedirectResponse:
+	if link not in links:
+		raise HTTPException(404, "link not found")
+	return RedirectResponse(links[link], status_code=302)
 
 
-def get_random_word(length: int = 5) -> str:
+def get_random_word(length: int = 4) -> str:
 	alphabet = "qwertyuiopasdfghjklzxcvbnm"
+	alphabet += alphabet.upper()
 	return "".join([random.choice(alphabet) for _ in range(length)])
