@@ -1,14 +1,31 @@
 import random
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, HttpUrl
 
 app = FastAPI()
 
 
+def add_scheme(link: str) -> str:
+	if link.startswith(("https://", "http://")):
+		return link
+	return f"https://{link}"
+
+
+def normalize_url(link: str) -> str:
+	host = HttpUrl(link).host or ""
+	if "." not in host:
+		raise ValueError("URL must include a domain with a TLD")
+	return str(HttpUrl(link))
+
+
+HttpStr = Annotated[str, BeforeValidator(add_scheme), AfterValidator(normalize_url)]
+
+
 class ShortenModel(BaseModel):
-	link: str = Field(title="link", max_length=1024, min_length=3)
+	link: HttpStr = Field(title="link", max_length=1024, min_length=3)
 
 
 class ShortenResponse(BaseModel):
@@ -18,11 +35,8 @@ class ShortenResponse(BaseModel):
 
 class Link(BaseModel):
 	short: str
-	long: str
-	count: int
-
-	def __init__(self, short: str, long: str):
-		super().__init__(short=short, long=long, count=0)
+	long: HttpStr
+	count: int = 0
 
 
 @app.get("/")
@@ -34,15 +48,16 @@ links: dict[str, Link] = {}
 
 
 @app.post("/shorten")
-def shorten(req: ShortenModel) -> ShortenResponse:
+def shorten(body: ShortenModel, req: Request) -> ShortenResponse:
 	short = get_random_word()
 
-	if not req.link.startswith("https:"):
-		url = f"https://{req.link}"
-	else:
-		url = req.link
+	url = body.link
 
-	links[short] = Link(short, url)
+	target = HttpUrl(url)
+	if target.host == req.url.hostname and target.port == req.base_url.port:
+		raise HTTPException(400, "Can't use shortener urls")
+
+	links[short] = Link(short=short, long=url)
 
 	return ShortenResponse(status="ok", new_link=short)
 
