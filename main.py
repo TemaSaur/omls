@@ -1,11 +1,17 @@
 import random
+import sqlite3
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, HttpUrl
 
+import storage
+
 app = FastAPI()
+
+with storage.get_db_session() as con:
+	storage.init_db(con)
 
 
 def add_scheme(link: str) -> str:
@@ -33,22 +39,15 @@ class ShortenResponse(BaseModel):
 	new_link: str = Field(title="newLink")
 
 
-class Link(BaseModel):
-	short: str
-	long: HttpStr
-	count: int = 0
-
-
 @app.get("/")
 def index() -> dict[str, str]:
 	return {"status": "ok"}
 
 
-links: dict[str, Link] = {}
-
-
 @app.post("/shorten")
-def shorten(body: ShortenModel, req: Request) -> ShortenResponse:
+def shorten(
+	body: ShortenModel, req: Request, con: sqlite3.Connection = Depends(storage.get_db)
+) -> ShortenResponse:
 	short = get_random_word()
 
 	url = body.link
@@ -57,26 +56,30 @@ def shorten(body: ShortenModel, req: Request) -> ShortenResponse:
 	if target.host == req.url.hostname and target.port == req.base_url.port:
 		raise HTTPException(400, "Can't use shortener urls")
 
-	links[short] = Link(short=short, long=url)
+	storage.create_link(con, storage.Link(short=short, long=url))
 
 	return ShortenResponse(status="ok", new_link=short)
 
 
 @app.get("/{link}")
-def longen(link: str) -> RedirectResponse:
-	if link not in links:
+def longen(
+	link: str, con: sqlite3.Connection = Depends(storage.get_db)
+) -> RedirectResponse:
+	res = storage.get_link(con, link)
+	if res is None:
 		raise HTTPException(404, "link not found")
-	obj = links[link]
-	obj.count += 1
-	return RedirectResponse(obj.long, status_code=302)
+	storage.increment_link(con, link)
+	return RedirectResponse(res.long, status_code=302)
 
 
 @app.get("/status/{link}")
-def get_status(link: str) -> Link:
-	if link not in links:
+def get_status(
+	link: str, con: sqlite3.Connection = Depends(storage.get_db)
+) -> storage.Link:
+	res = storage.get_link(con, link)
+	if res is None:
 		raise HTTPException(404, "link not found")
-	obj = links[link]
-	return obj
+	return res
 
 
 def get_random_word(length: int = 4) -> str:
